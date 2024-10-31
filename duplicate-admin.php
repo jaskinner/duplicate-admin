@@ -24,6 +24,13 @@ class DuplicateAdmin
     {
         wp_enqueue_script('jquery');
         wp_enqueue_style('duplicate-admin', plugin_dir_url(__FILE__) . 'styles.css');
+
+        // Localize script to pass AJAX URL and nonce
+        wp_enqueue_script('duplicate-admin-ajax', plugin_dir_url(__FILE__) . 'duplicate-admin.js', array('jquery'), null, true);
+        wp_localize_script('duplicate-admin-ajax', 'my_ajax_object', array(
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'security' => wp_create_nonce('my_ajax_nonce')
+        ));
     }
 
     public function add_admin_menu()
@@ -44,12 +51,9 @@ class DuplicateAdmin
 ?>
         <div class="wrap">
             <h1>Media Items Linked to Posts</h1>
-            <form method="post" action="' . admin_url('admin-post.php') . '">
+            <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
                 <input type="hidden" name="action" value="delete_detached_media">
-                <?php
-
-                wp_nonce_field('delete_detached_media_nonce', 'delete_detached_media_nonce_field');
-                ?>
+                <?php wp_nonce_field('delete_detached_media_nonce', 'delete_detached_media_nonce_field'); ?>
                 <label for="numberposts">Number of detached media items to delete:</label>
                 <input type="number" name="numberposts" id="numberposts" value="10" min="1">
                 <input type="submit" class="button button-primary" value="Delete Detached Media Items">
@@ -64,7 +68,6 @@ class DuplicateAdmin
                     </tr>
                 </thead>
                 <tbody>
-
                     <?php
                     $paged = isset($_GET['paged']) ? intval($_GET['paged']) : 1;
 
@@ -106,38 +109,29 @@ class DuplicateAdmin
 
                                         // Use a regular expression to remove the `-num.ext` part
                                         $cleanedFilename = preg_replace('/-\d+\.[^.]+$/', '', $filename);
-                                        
-                                        
                     ?>
-
                                         <tr>
                                             <td class="post-id-cell"><?php echo esc_html($product->get_id()); ?></td>
                                             <td><?php echo esc_html($product->get_name()); ?></td>
-
-                        <?php
-                                        if (preg_match('/-\d+\.jpeg$/', $meta_data["file"]) || preg_match('/-\d+\.jpg$/', $meta_data["file"]) || preg_match('/-\d+\.png$/', $meta_data["file"])) {
-                                            echo '<td class="duplicate">' . esc_html($meta_data["file"]) . '</td>';
-                                        } else {
-                                            echo '<td>' . esc_html($meta_data["file"]) . '</td>';
+                                            <?php
+                                            if (preg_match('/-\d+\.jpeg$/', $meta_data["file"]) || preg_match('/-\d+\.jpg$/', $meta_data["file"]) || preg_match('/-\d+\.png$/', $meta_data["file"])) {
+                                                echo '<td class="duplicate">' . esc_html($meta_data["file"]) . '</td>';
+                                            } else {
+                                                echo '<td>' . esc_html($meta_data["file"]) . '</td>';
+                                            }
+                                            echo '</tr>';
                                         }
-
-                                        echo '</tr>';
                                     }
                                 }
-                            }
-                        endwhile;
-                    } else {
-                        echo '<tr><td colspan="3">No media items found.</td></tr>';
-                    }
-
-                        ?>
-
-
+                            endwhile;
+                        } else {
+                            echo '<tr><td colspan="3">No media items found.</td></tr>';
+                        }
+                    ?>
                 </tbody>
             </table>
         </div>
 <?php
-
         echo paginate_links(array(
             'base' => add_query_arg('paged', '%#%'),
             'total'   => $loop->max_num_pages,
@@ -206,3 +200,4 @@ class DuplicateAdmin
 
 // Instantiate the class
 new DuplicateAdmin();
+?>

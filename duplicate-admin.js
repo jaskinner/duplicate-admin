@@ -23,20 +23,16 @@ jQuery(document).ready(function ($) {
     $('.delete-all-attachments').on('click', function (e) {
         e.preventDefault();
         const $attachmentIds = [];
-        $('tr > td').each(function () {
+        $('tr > td.duplicate').each(function () {
             const $row = $(this).parent();
             const attachmentId = $row.find('.delete-attachment').data('attachment-id');
-            if ($(this).hasClass('org')) {
-                console.log('Attachment ID: original');
-            } else if ($(this).hasClass('del')) {
-                $attachmentIds.push(attachmentId);
-            }
+            $attachmentIds.push(attachmentId);
         });
 
         function deleteAttachmentsBatch(ids) {
             if (ids.length === 0) return; // Exit if there are no more attachments
 
-            const batch = ids.splice(0, 10); // Process 20 attachments at a time
+            const batch = ids.splice(0, 1000); // Process 20 attachments at a time
 
             $.ajax({
                 url: my_ajax_object.ajaxurl,
@@ -62,7 +58,7 @@ jQuery(document).ready(function ($) {
             });
         }
 
-        // deleteAttachmentsBatch($attachmentIds); // Start the batch deletion
+        deleteAttachmentsBatch($attachmentIds); // Start the batch deletion
     });
 
     $('.delete-all-detached').on('click', function (e) {

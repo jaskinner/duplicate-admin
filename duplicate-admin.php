@@ -62,8 +62,9 @@ class DuplicateAdmin
                 <input type="hidden" name="action" value="delete_detached_media">
                 <?php wp_nonce_field('delete_detached_media_nonce', 'delete_detached_media_nonce_field'); ?>
                 <label for="numberposts">Number of detached media items to delete:</label>
+                <input type="number" name="numberposts" id="numberposts" value="10" min="1">
+                <input type="submit" class="button button-primary" value="Delete Detached Media Items">
             </form>
-            <!-- <button id="ajax-button" class="button button-primary">Delete Duplicate Media Items</button> -->
             <table class="widefat fixed" cellspacing="0">
                 <thead>
                     <tr>
@@ -112,7 +113,6 @@ class DuplicateAdmin
                                 $attachments = get_posts($args);
 
                                 if ($attachments) {
-                                    $thumb_saved = false;
                                     foreach ($attachments as $attachment) {
                                         $meta_data = wp_get_attachment_metadata($attachment->ID, false);
 
@@ -121,11 +121,11 @@ class DuplicateAdmin
                                             <td class="post-id-cell"><?php echo esc_html($product->get_id()); ?></td>
                                             <td><?php echo esc_html($product->get_name()); ?></td>
                                             <?php
-                                            if ($thumb_saved) {
-                                                echo '<td class="del">' . esc_html($meta_data["file"]) . '</td>';
+                                            $thumb = get_post_thumbnail_id($product->get_id());
+                                            if ($thumb != $attachment->ID) {
+                                                echo '<td class="duplicate">' . esc_html($meta_data["file"]) . '</td>';
                                             } else {
-                                                echo '<td class="org">' . esc_html($meta_data["file"]) . '</td>';
-                                                $thumb_saved = true;
+                                                echo '<td>' . esc_html($meta_data["file"]) . '</td>';
                                             } ?>
                                             <td><button class="delete-attachment" data-attachment-id="<?php echo $attachment->ID; ?>">Delete file</button></td>
                                         </tr>
@@ -156,11 +156,13 @@ class DuplicateAdmin
 
     public function delete_detached_media()
     {
+        $numberposts = isset($_POST['numberposts']) ? intval($_POST['numberposts']) : 10;
+
         // Get all media items
         $args = array(
             'post_type' => 'attachment',
             'post_status' => 'any',
-            'posts_per_page' => 100,
+            'posts_per_page' => $numberposts,
             'post_parent' => 0,
         );
 
@@ -168,7 +170,17 @@ class DuplicateAdmin
 
         foreach ($attachments as $attachment) {
             // Delete the attachment and its thumbnails
-            $this->initiateDelete($attachment);
+            $this->initiateDelete($attachment->ID);
+        }
+
+
+        if (wp_doing_ajax()) {
+            // AJAX response
+            wp_send_json_success(__('Detached media items deleted successfully', 'textdomain'));
+        } else {
+            // Non-AJAX response: redirect back to the admin page with a success message
+            wp_redirect(add_query_arg('deleted', 'true', admin_url('admin.php?page=duplicate-admin')));
+            exit;
         }
     }
 
@@ -179,11 +191,6 @@ class DuplicateAdmin
         $attachmentId = $_POST['attachmentId'];
 
         $this->initiateDelete($attachmentId);
-
-        $response = 'AJAX action handled successfully';
-
-        echo $response;
-        wp_die();
     }
 
     public function delete_batch_attachments()

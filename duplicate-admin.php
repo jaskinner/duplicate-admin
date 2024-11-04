@@ -6,6 +6,8 @@ Version: 1.0
 Author: Jon Skinner
 */
 
+use DeliciousBrains\WPMDB\Common\Error\ErrorLog;
+
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -16,7 +18,12 @@ class DuplicateAdmin
     {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_post_delete_detached_media', array($this, 'delete_detached_media'));
-        add_action('wp_ajax_my_ajax_action', array($this, 'handle_ajax_request'));
+        add_action('wp_ajax_delete_detached_media', array($this, 'delete_detached_media'));
+        add_action('wp_ajax_nopriv_delete_detached_media', array($this, 'delete_detached_media'));
+        add_action('wp_ajax_delete_single_attachment', array($this, 'delete_single_attachment'));
+        add_action('wp_ajax_nopriv_delete_single_attachment', array($this, 'delete_single_attachment'));
+        add_action('wp_ajax_delete_batch_attachments', array($this, 'delete_batch_attachments'));
+        add_action('wp_ajax_nopriv_delete_batch_attachments', array($this, 'delete_batch_attachments'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
     }
 
@@ -55,16 +62,18 @@ class DuplicateAdmin
                 <input type="hidden" name="action" value="delete_detached_media">
                 <?php wp_nonce_field('delete_detached_media_nonce', 'delete_detached_media_nonce_field'); ?>
                 <label for="numberposts">Number of detached media items to delete:</label>
-                <input type="number" name="numberposts" id="numberposts" value="10" min="1">
-                <input type="submit" class="button button-primary" value="Delete Detached Media Items">
             </form>
-            <button id="ajax-button" class="button button-primary">Delete Duplicate Media Items</button>
+            <!-- <button id="ajax-button" class="button button-primary">Delete Duplicate Media Items</button> -->
             <table class="widefat fixed" cellspacing="0">
                 <thead>
                     <tr>
                         <th>Post ID</th>
                         <th>Post Title</th>
                         <th>Attachment ID</th>
+                        <th>
+                            <button class="delete-all-attachments">Delete all duplicates</button>
+                            <button class="delete-all-detached">Delete all detached</button>
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
@@ -73,7 +82,7 @@ class DuplicateAdmin
 
                     $args = array(
                         'post_type' => 'product',
-                        'posts_per_page' => 10,
+                        'posts_per_page' => -1,
                         'paged' => $paged,
                         'meta_query' => array(
                             array(
@@ -103,30 +112,31 @@ class DuplicateAdmin
                                 $attachments = get_posts($args);
 
                                 if ($attachments) {
+                                    $thumb_saved = false;
                                     foreach ($attachments as $attachment) {
                                         $meta_data = wp_get_attachment_metadata($attachment->ID, false);
-                                        $filename = esc_html($meta_data["file"]);
 
-                                        // Use a regular expression to remove the `-num.ext` part
-                                        $cleanedFilename = preg_replace('/-\d+\.[^.]+$/', '', $filename);
                     ?>
                                         <tr>
                                             <td class="post-id-cell"><?php echo esc_html($product->get_id()); ?></td>
                                             <td><?php echo esc_html($product->get_name()); ?></td>
                                             <?php
-                                            if (preg_match('/-\d+\.jpeg$/', $meta_data["file"]) || preg_match('/-\d+\.jpg$/', $meta_data["file"]) || preg_match('/-\d+\.png$/', $meta_data["file"])) {
-                                                echo '<td class="duplicate">' . esc_html($meta_data["file"]) . '</td>';
+                                            if ($thumb_saved) {
+                                                echo '<td class="del">' . esc_html($meta_data["file"]) . '</td>';
                                             } else {
-                                                echo '<td>' . esc_html($meta_data["file"]) . '</td>';
-                                            }
-                                            echo '</tr>';
-                                        }
+                                                echo '<td class="org">' . esc_html($meta_data["file"]) . '</td>';
+                                                $thumb_saved = true;
+                                            } ?>
+                                            <td><button class="delete-attachment" data-attachment-id="<?php echo $attachment->ID; ?>">Delete file</button></td>
+                                        </tr>
+                    <?php
                                     }
                                 }
-                            endwhile;
-                        } else {
-                            echo '<tr><td colspan="3">No media items found.</td></tr>';
-                        }
+                            }
+                        endwhile;
+                    } else {
+                        echo '<tr><td colspan="3">No media items found.</td></tr>';
+                    }
                     ?>
                 </tbody>
             </table>
@@ -146,21 +156,11 @@ class DuplicateAdmin
 
     public function delete_detached_media()
     {
-        // Check nonce for security
-        if (!isset($_POST['delete_detached_media_nonce_field']) || !wp_verify_nonce($_POST['delete_detached_media_nonce_field'], 'delete_detached_media_nonce')) {
-            wp_die('Nonce verification failed');
-        }
-
-        // Check user capabilities
-        if (!current_user_can('manage_options')) {
-            wp_die('You do not have sufficient permissions to access this page.');
-        }
-
         // Get all media items
         $args = array(
             'post_type' => 'attachment',
             'post_status' => 'any',
-            'posts_per_page' => -1,
+            'posts_per_page' => 100,
             'post_parent' => 0,
         );
 
@@ -168,33 +168,35 @@ class DuplicateAdmin
 
         foreach ($attachments as $attachment) {
             // Delete the attachment and its thumbnails
-            wp_delete_attachment($attachment->ID, true);
+            $this->initiateDelete($attachment);
         }
-
-        // Redirect back to the admin page with a success message
-        wp_redirect(admin_url('admin.php?page=duplicate-admin&deleted=1'));
-        exit;
     }
 
-    public function handle_ajax_request()
+    public function delete_single_attachment()
     {
         check_ajax_referer('my_ajax_nonce', 'security');
 
-        // Your PHP logic here
+        $attachmentId = $_POST['attachmentId'];
+
+        $this->initiateDelete($attachmentId);
+
         $response = 'AJAX action handled successfully';
 
         echo $response;
         wp_die();
     }
 
-    public function initiateDelete($attachment, $product)
+    public function delete_batch_attachments()
     {
-        $meta_data = wp_get_attachment_metadata($attachment->ID, false);
-        if (preg_match('/-\d+\.jpeg$/', $meta_data["file"]) || preg_match('/-\d+\.jpg$/', $meta_data["file"]) || preg_match('/-\d+\.png$/', $meta_data["file"])) {
-            wp_delete_attachment($attachment->ID, true);
-        } else {
-            set_post_thumbnail($product->get_id(), $attachment->ID);
+        $attachmentIds = $_POST['attachmentIds'];
+        foreach ($attachmentIds as $attachmentId) {
+            $this->initiateDelete($attachmentId);
         }
+    }
+
+    public function initiateDelete($attachmentId)
+    {
+        wp_delete_attachment($attachmentId, true);
     }
 }
 
